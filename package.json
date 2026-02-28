@@ -1,0 +1,58 @@
+{
+  "name": "@zbruceli/openclaw-dchat",
+  "version": "0.1.0",
+  "description": "OpenClaw D-Chat/nMobile channel plugin — decentralized E2E encrypted messaging over the NKN relay network",
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {
+    "nkn-sdk": "^1.3.6",
+    "zod": "^3.24.0"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "devDependencies": {
+    "openclaw": "*",
+    "vitest": "^3.0.0",
+    "typescript": "^5.8.0"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "channel": {
+      "id": "dchat",
+      "label": "D-Chat / nMobile",
+      "selectionLabel": "D-Chat (plugin)",
+      "docsPath": "/channels/dchat",
+      "docsLabel": "dchat",
+      "blurb": "decentralized E2E encrypted messaging over the NKN relay network.",
+      "order": 80,
+      "quickstartAllowFrom": true
+    },
+    "install": {
+      "npmSpec": "@zbruceli/openclaw-dchat"
+    }
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "dchat",
+    "nmobile",
+    "nkn",
+    "decentralized",
+    "e2e",
+    "encrypted",
+    "messaging"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zbruceli/openclaw-dchat.git"
+  },
+  "homepage": "https://github.com/zbruceli/openclaw-dchat"
+}
