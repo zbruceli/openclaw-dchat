@@ -1,3 +1,4 @@
+import nkn from "nkn-sdk";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { z } from "zod";
 import type { DchatAccountConfig, ResolvedDchatAccount } from "./types.js";
@@ -17,7 +18,7 @@ const DEFAULT_ACCOUNT_ID = "default";
 
 /* ── Zod config schema (powers web UI form via buildChannelConfigSchema) ── */
 
-const dchatAccountSchema = z.object({
+export const dchatAccountSchema = z.object({
   name: z.string().optional(),
   enabled: z.boolean().optional(),
   seed: z.string().optional(),
@@ -25,18 +26,14 @@ const dchatAccountSchema = z.object({
   keystorePassword: z.string().optional(),
   numSubClients: z.number().optional(),
   ipfsGateway: z.string().optional(),
-  dm: z
-    .object({
-      policy: z.enum(["pairing", "allowlist", "open", "disabled"]).optional(),
-      allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
-    })
-    .optional(),
-});
+  dmPolicy: z.enum(["pairing", "allowlist", "open", "disabled"]).optional(),
+  allowFrom: z.array(z.string()).optional(),
+}).strict();
 
 export const DchatConfigSchema = dchatAccountSchema.extend({
   accounts: z.record(z.string(), dchatAccountSchema.optional()).optional(),
   defaultAccount: z.string().optional(),
-});
+}).strict();
 
 /* ── Config helpers ── */
 
@@ -91,7 +88,8 @@ export function resolveDchatAccountConfig(params: {
     return {
       ...dchatConfig,
       ...acct,
-      dm: { ...dchatConfig.dm, ...acct.dm },
+      dmPolicy: acct.dmPolicy ?? dchatConfig.dmPolicy,
+      allowFrom: acct.allowFrom ?? dchatConfig.allowFrom,
     };
   }
 
@@ -107,8 +105,18 @@ export function resolveDchatAccount(params: {
   const accountId = rawAccountId || DEFAULT_ACCOUNT_ID;
   const accountConfig = resolveDchatAccountConfig({ cfg, accountId });
 
-  const hasSeed = Boolean(accountConfig.seed?.trim());
-  const hasKeystore = Boolean(accountConfig.keystoreJson?.trim());
+  const seed = accountConfig.seed?.trim();
+  const hasSeed = Boolean(seed);
+
+  let nknAddress: string | undefined;
+  if (hasSeed && seed) {
+    try {
+      const wallet = new nkn.Wallet({ seed });
+      nknAddress = wallet.getPublicKey();
+    } catch {
+      // seed may be invalid
+    }
+  }
 
   const baseEnabled = cfg.channels?.dchat?.enabled !== false;
   return {
@@ -116,7 +124,8 @@ export function resolveDchatAccount(params: {
     name: accountConfig.name || accountId,
     enabled: baseEnabled && accountConfig.enabled !== false,
     configured: hasSeed,
-    seed: accountConfig.seed?.trim(),
+    seed,
+    nknAddress,
     numSubClients: accountConfig.numSubClients ?? 4,
     ipfsGateway: accountConfig.ipfsGateway ?? "64.225.88.71:80",
     config: accountConfig,

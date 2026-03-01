@@ -118,10 +118,8 @@ export interface DchatAccountConfig {
   ipfsGateway?: string; // default: "64.225.88.71:80"
   enabled?: boolean;
   name?: string;
-  dm?: {
-    allowFrom?: Array<string | number>;
-    policy?: string;
-  };
+  dmPolicy?: string;
+  allowFrom?: string[];
 }
 
 export interface ResolvedDchatAccount {
@@ -130,6 +128,7 @@ export interface ResolvedDchatAccount {
   enabled: boolean;
   configured: boolean;
   seed?: string;
+  nknAddress?: string;
   numSubClients: number;
   ipfsGateway: string;
   config: DchatAccountConfig;

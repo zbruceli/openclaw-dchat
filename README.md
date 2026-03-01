@@ -24,7 +24,11 @@ openclaw plugins install @zbruceli/openclaw-dchat
 After installing, add the D-Chat channel:
 
 ```bash
-openclaw channels add --channel dchat
+# Interactive wizard
+openclaw channels add
+
+# Non-interactive
+openclaw channels add --channel dchat --access-token <64-char-hex-seed>
 ```
 
 The onboarding wizard will prompt you for:
@@ -49,8 +53,34 @@ channels:
   dchat:
     enabled: true
     seed: "your-64-char-hex-wallet-seed"
-    dm:
-      policy: pairing
+    dmPolicy: pairing
+    allowFrom:
+      - "nkn-address-hex"
+```
+
+## Pairing
+
+With the default `dmPolicy: pairing`, new senders receive a pairing code that must be approved before messages flow through to the agent.
+
+```bash
+# List pending pairing requests
+openclaw pairing list dchat
+
+# Approve a sender
+openclaw pairing approve dchat <CODE>
+```
+
+## Channel Management
+
+```bash
+# Check channel status
+openclaw channels status
+
+# Remove channel
+openclaw channels remove --channel dchat
+
+# Uninstall plugin
+openclaw plugins uninstall openclaw-dchat
 ```
 
 ## Development

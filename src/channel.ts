@@ -1,15 +1,46 @@
 import {
   applyAccountNameToChannelSection,
+  buildBaseAccountStatusSnapshot,
+  buildBaseChannelStatusSummary,
   buildChannelConfigSchema,
-  createScopedPairingAccess,
+  collectStatusIssuesFromLastError,
+  createDefaultChannelRuntimeState,
   DEFAULT_ACCOUNT_ID,
   deleteAccountFromConfigSection,
-  formatPairingApproveHint,
   normalizeAccountId,
   resolveSenderCommandAuthorization,
   setAccountEnabledInConfigSection,
   type ChannelPlugin,
 } from "openclaw/plugin-sdk";
+import type { PluginRuntime } from "openclaw/plugin-sdk";
+
+/* ── Inline helpers that may not exist in older OpenClaw versions ── */
+
+function createScopedPairingAccess(params: {
+  core: PluginRuntime;
+  channel: string;
+  accountId: string;
+}) {
+  const resolvedAccountId = normalizeAccountId(params.accountId);
+  return {
+    accountId: resolvedAccountId,
+    readAllowFromStore: () =>
+      params.core.channel.pairing.readAllowFromStore({
+        channel: params.channel,
+        accountId: resolvedAccountId,
+      }),
+    upsertPairingRequest: (input: { id: string; meta?: Record<string, unknown> }) =>
+      params.core.channel.pairing.upsertPairingRequest({
+        channel: params.channel,
+        accountId: resolvedAccountId,
+        ...input,
+      }),
+  };
+}
+
+function formatPairingApproveHint(channelId: string): string {
+  return `Approve via: openclaw pairing list ${channelId} / openclaw pairing approve ${channelId} <code>`;
+}
 import {
   type CoreConfig,
   DchatConfigSchema,
@@ -103,10 +134,11 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
       name: account.name,
       enabled: account.enabled,
       configured: account.configured,
+      nknAddress: account.nknAddress ?? null,
     }),
     resolveAllowFrom: ({ cfg, accountId }) => {
       const dchatConfig = resolveDchatAccountConfig({ cfg: cfg as CoreConfig, accountId });
-      return (dchatConfig.dm?.allowFrom ?? []).map((entry: string | number) => String(entry));
+      return (dchatConfig.allowFrom ?? []).map((entry) => String(entry));
     },
     formatAllowFrom: ({ allowFrom }) =>
       allowFrom.map((entry) => String(entry).replace(/^dchat:/i, "")),
@@ -116,12 +148,12 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
       const accountId = account.accountId;
       const prefix =
         accountId && accountId !== "default"
-          ? `channels.dchat.accounts.${accountId}.dm`
-          : "channels.dchat.dm";
+          ? `channels.dchat.accounts.${accountId}`
+          : "channels.dchat";
       return {
-        policy: account.config.dm?.policy ?? "pairing",
-        allowFrom: account.config.dm?.allowFrom ?? [],
-        policyPath: `${prefix}.policy`,
+        policy: account.config.dmPolicy ?? "pairing",
+        allowFrom: account.config.allowFrom ?? [],
+        policyPath: `${prefix}.dmPolicy`,
         allowFromPath: `${prefix}.allowFrom`,
         approveHint: formatPairingApproveHint("dchat"),
         normalizeEntry: (raw: string) => raw.replace(/^dchat:/i, ""),
@@ -263,45 +295,23 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
   },
   status: {
     defaultRuntime: {
-      accountId: DEFAULT_ACCOUNT_ID,
-      running: false,
-      lastStartAt: null,
-      lastStopAt: null,
-      lastError: null,
+      ...createDefaultChannelRuntimeState(DEFAULT_ACCOUNT_ID),
+      connected: false,
+      lastConnectedAt: null,
     },
     buildChannelSummary: ({ snapshot }) => ({
-      configured: snapshot.configured ?? false,
-      running: snapshot.running ?? false,
-      nknAddress: snapshot.baseUrl ?? null,
-      lastStartAt: snapshot.lastStartAt ?? null,
-      lastStopAt: snapshot.lastStopAt ?? null,
-      lastError: snapshot.lastError ?? null,
+      ...buildBaseChannelStatusSummary(snapshot),
+      nknAddress: snapshot.nknAddress ?? null,
+      connected: snapshot.connected ?? false,
+      lastConnectedAt: snapshot.lastConnectedAt ?? null,
     }),
     buildAccountSnapshot: ({ account, runtime }) => ({
-      accountId: account.accountId,
-      name: account.name,
-      enabled: account.enabled,
-      configured: account.configured,
-      running: runtime?.running ?? false,
-      lastStartAt: runtime?.lastStartAt ?? null,
-      lastStopAt: runtime?.lastStopAt ?? null,
-      lastError: runtime?.lastError ?? null,
-      lastInboundAt: runtime?.lastInboundAt ?? null,
-      lastOutboundAt: runtime?.lastOutboundAt ?? null,
+      ...buildBaseAccountStatusSnapshot({ account, runtime }),
+      nknAddress: account.nknAddress ?? null,
+      connected: (runtime as Record<string, unknown>)?.connected ?? false,
+      lastConnectedAt: (runtime as Record<string, unknown>)?.lastConnectedAt ?? null,
     }),
-    collectStatusIssues: (accounts) =>
-      accounts.flatMap((account) => {
-        const lastError = typeof account.lastError === "string" ? account.lastError.trim() : "";
-        if (!lastError) return [];
-        return [
-          {
-            channel: "dchat",
-            accountId: account.accountId,
-            kind: "runtime",
-            message: `Channel error: ${lastError}`,
-          },
-        ];
-      }),
+    collectStatusIssues: (accounts) => collectStatusIssuesFromLastError("dchat", accounts),
   },
   gateway: {
     startAccount: async (ctx) => {
@@ -332,7 +342,9 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
           accountId: account.accountId,
           baseUrl: address,
           running: true,
+          connected: true,
           lastStartAt: Date.now(),
+          lastConnectedAt: Date.now(),
         });
         logger.info(`[${account.accountId}] connected as ${address}`);
 
@@ -383,8 +395,8 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
 
               // Resolve command authorization for slash commands (/status, /stop, etc.)
               const isGroup = inbound.chatType === "group";
-              const dmPolicy = account.config.dm?.policy ?? "pairing";
-              const configAllowFrom = (account.config.dm?.allowFrom ?? []).map((v) => String(v));
+              const dmPolicy = account.config.dmPolicy ?? "pairing";
+              const configAllowFrom = (account.config.allowFrom ?? []).map((v) => String(v));
 
               const isSenderAllowed = (senderId: string, allowFrom: string[]) => {
                 const lower = senderId.toLowerCase();
@@ -598,7 +610,8 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
                   markDispatchIdle?.();
                 });
             } catch (err) {
-              logger.error(`[${account.accountId}] inbound handler error`, { error: String(err) });
+              const errDetail = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
+              logger.error(`[${account.accountId}] inbound handler error: ${errDetail}`);
             }
           })();
         });
@@ -619,6 +632,7 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
         const errMsg = err instanceof Error ? err.message : String(err);
         ctx.setStatus({
           accountId: account.accountId,
+          connected: false,
           lastError: errMsg,
           lastStopAt: Date.now(),
         });

@@ -12,7 +12,7 @@ import { listDchatAccountIds, resolveDchatAccount, type CoreConfig } from "./con
 const channel = "dchat" as const;
 
 function setDchatDmPolicy(cfg: CoreConfig, policy: DmPolicy) {
-  const existingAllowFrom = cfg.channels?.dchat?.dm?.allowFrom ?? [];
+  const existingAllowFrom = cfg.channels?.dchat?.allowFrom ?? [];
   const allowFrom =
     policy === "open"
       ? addWildcardAllowFrom(existingAllowFrom)
@@ -23,11 +23,8 @@ function setDchatDmPolicy(cfg: CoreConfig, policy: DmPolicy) {
       ...cfg.channels,
       dchat: {
         ...cfg.channels?.dchat,
-        dm: {
-          ...cfg.channels?.dchat?.dm,
-          policy,
-          allowFrom,
-        },
+        dmPolicy: policy,
+        allowFrom,
       },
     },
   };
@@ -38,7 +35,7 @@ async function promptDchatAllowFrom(params: {
   prompter: WizardPrompter;
 }): Promise<CoreConfig> {
   const { cfg, prompter } = params;
-  const existingAllowFrom = cfg.channels?.dchat?.dm?.allowFrom ?? [];
+  const existingAllowFrom = cfg.channels?.dchat?.allowFrom ?? [];
 
   const entry = await prompter.text({
     message: "NKN address to allow (full public key hex)",
@@ -60,11 +57,8 @@ async function promptDchatAllowFrom(params: {
       dchat: {
         ...cfg.channels?.dchat,
         enabled: true,
-        dm: {
-          ...cfg.channels?.dchat?.dm,
-          policy: "allowlist",
-          allowFrom: unique,
-        },
+        dmPolicy: "allowlist",
+        allowFrom: unique,
       },
     },
   };
@@ -73,9 +67,9 @@ async function promptDchatAllowFrom(params: {
 const dmPolicy: ChannelOnboardingDmPolicy = {
   label: "D-Chat",
   channel,
-  policyKey: "channels.dchat.dm.policy",
-  allowFromKey: "channels.dchat.dm.allowFrom",
-  getCurrent: (cfg) => ((cfg as CoreConfig).channels?.dchat?.dm?.policy as DmPolicy) ?? "pairing",
+  policyKey: "channels.dchat.dmPolicy",
+  allowFromKey: "channels.dchat.allowFrom",
+  getCurrent: (cfg) => ((cfg as CoreConfig).channels?.dchat?.dmPolicy as DmPolicy) ?? "pairing",
   setPolicy: (cfg, policy) => setDchatDmPolicy(cfg as CoreConfig, policy),
   promptAllowFrom: promptDchatAllowFrom,
 };
