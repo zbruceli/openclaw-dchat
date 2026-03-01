@@ -24,7 +24,7 @@ openclaw plugins install @zbruceli/openclaw-dchat
 After installing, add the D-Chat channel:
 
 ```bash
-openclaw channels add dchat
+openclaw channels add --channel dchat
 ```
 
 The onboarding wizard will prompt you for:

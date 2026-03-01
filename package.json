@@ -1,6 +1,6 @@
 {
   "name": "@zbruceli/openclaw-dchat",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OpenClaw D-Chat/nMobile channel plugin — decentralized E2E encrypted messaging over the NKN relay network",
   "type": "module",
   "main": "index.ts",

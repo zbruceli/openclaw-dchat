@@ -4,7 +4,7 @@ import { dchatPlugin } from "./src/channel.js";
 import { setDchatRuntime } from "./src/runtime.js";
 
 const plugin = {
-  id: "dchat",
+  id: "openclaw-dchat",
   name: "D-Chat / nMobile",
   description: "D-Chat/nMobile channel plugin (NKN relay network)",
   configSchema: emptyPluginConfigSchema(),

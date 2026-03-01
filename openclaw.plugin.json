@@ -1,5 +1,5 @@
 {
-  "id": "dchat",
+  "id": "openclaw-dchat",
   "channels": ["dchat"],
   "configSchema": {
     "type": "object",
