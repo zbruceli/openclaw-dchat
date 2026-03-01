@@ -17,6 +17,8 @@
     "typescript": "^5.8.0"
   },
   "scripts": {
+    "dev": "echo 'Run: openclaw plugins install -l . && openclaw gateway restart'",
+    "dev:test": "vitest --watch",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -107,6 +107,38 @@ npm test
 npm run test:watch
 ```
 
+### Local Development (link workflow)
+
+During plugin development, use the `--link` flag to avoid the npm publish → reinstall cycle:
+
+```bash
+# Link plugin from your local source directory
+openclaw plugins install -l /path/to/openclaw-dchat
+
+# After code changes, just restart the gateway — no reinstall needed
+openclaw gateway restart
+```
+
+This adds your local path to `plugins.load.paths` in `openclaw.json` and loads directly from source. No need to republish or reinstall between iterations.
+
+### Clean Uninstall / Reinstall
+
+When you need a full cleanup:
+
+```bash
+# Uninstall plugin (removes config entries + installed files)
+openclaw plugins uninstall openclaw-dchat
+
+# Remove channel config
+openclaw channels remove --channel dchat
+
+# Reinstall from npm (production)
+openclaw plugins install @zbruceli/openclaw-dchat
+
+# Restart gateway
+openclaw gateway restart
+```
+
 ## How it works
 
 The plugin connects to the NKN relay network as a MultiClient node, enabling peer-to-peer messaging without centralized servers. Messages use the same wire format as D-Chat Desktop and nMobile, so you can chat between OpenClaw and any D-Chat/nMobile client.
