@@ -19,6 +19,11 @@ OpenClaw channel plugin for **D-Chat / nMobile** — decentralized end-to-end en
 openclaw plugins install @zbruceli/openclaw-dchat
 ```
 
+Remember to restart gateway
+```bash
+openclaw gateway restart
+```
+
 ## Configuration
 
 After installing, add the D-Chat channel:
@@ -33,7 +38,7 @@ openclaw channels add --channel dchat --access-token <64-char-hex-seed>
 
 The onboarding wizard will prompt you for:
 
-1. **NKN wallet seed** — a 64-character hex string. Generate one with `nkn-sdk` or use an existing seed from D-Chat Desktop / nMobile.
+1. **NKN wallet seed** — a 64-character hex string. The easiest way is 1-click generating a NKN bot in the Settings menu of D-Chat Desktop app. Or you can generate one with `nkn-sdk` or use an existing seed from D-Chat Desktop / nMobile.
 2. **DM policy** — controls who can send you direct messages:
    - `pairing` (default) — new senders must be approved via pairing code
    - `allowlist` — only explicitly allowed NKN addresses
@@ -82,6 +87,12 @@ openclaw channels remove --channel dchat
 # Uninstall plugin
 openclaw plugins uninstall openclaw-dchat
 ```
+
+## Debug if you run into issues
+```bash
+openclaw logs | grep -i dchat
+```
+
 
 ## Development
 
