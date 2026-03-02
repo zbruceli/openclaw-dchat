@@ -7,7 +7,7 @@ OpenClaw channel plugin for **D-Chat / nMobile** — decentralized end-to-end en
 - Direct messages (DM) with NKN addresses
 - Topic-based group chat (NKN pub/sub)
 - Private group messaging
-- IPFS media placeholders (image, audio, file)
+- IPFS media support (send & receive images over IPFS with AES-128-GCM encryption)
 - Delivery receipts
 - AES-128-GCM encryption (nMobile wire format compatible)
 - Multi-account support

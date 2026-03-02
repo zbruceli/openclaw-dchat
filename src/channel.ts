@@ -8,6 +8,7 @@ import {
   DEFAULT_ACCOUNT_ID,
   deleteAccountFromConfigSection,
   normalizeAccountId,
+  resolveOutboundMediaUrls,
   resolveSenderCommandAuthorization,
   setAccountEnabledInConfigSection,
   type ChannelPlugin,
@@ -59,12 +60,14 @@ import {
   extractGroupIdFromSessionKey,
   extractTopicFromSessionKey,
   genTopicHash,
+  ipfsToNkn,
   nknToInbound,
   parseNknPayload,
   receiptToNkn,
   stripNknSubClientPrefix,
   textToNkn,
 } from "./wire.js";
+import { IpfsService, mimeToIpfsFileType } from "./ipfs.js";
 
 // Per-account NKN bus instances and dedup trackers, keyed by accountId
 const busMap = new Map<string, NknBus>();
@@ -91,7 +94,7 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
   onboarding: dchatOnboardingAdapter,
   capabilities: {
     chatTypes: ["direct", "group"],
-    media: false, // IPFS media support is a stretch goal for v2
+    media: true,
     threads: false,
     reactions: false,
     polls: false,
@@ -226,6 +229,106 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
         channel: "dchat",
         messageId: msgData.id,
       };
+    },
+    sendMedia: async ({ to, text, mediaUrl, accountId }) => {
+      const core = getDchatRuntime();
+      const logger = core.logging.getChildLogger({ module: "dchat" });
+      const resolvedAccountId =
+        accountId ??
+        resolveDefaultDchatAccountId(core.config.loadConfig() as CoreConfig);
+      const bus = getBusForAccount(resolvedAccountId);
+      if (!bus) {
+        throw new Error(`D-Chat account "${resolvedAccountId}" not connected`);
+      }
+
+      const accountCfg = resolveDchatAccount({
+        cfg: core.config.loadConfig() as CoreConfig,
+        accountId: resolvedAccountId,
+      });
+
+      const topicName = to.startsWith("topic:") ? to.slice("topic:".length) : undefined;
+      const groupId = to.startsWith("group:") ? to.slice("group:".length) : undefined;
+
+      let mediaMessageId: string | undefined;
+
+      if (mediaUrl) {
+        try {
+          const media = await core.media.loadWebMedia(mediaUrl);
+          const ipfs = new IpfsService(accountCfg.ipfsGateway);
+          const uploadResult = await ipfs.upload(Buffer.from(media.buffer));
+          const fileType = mimeToIpfsFileType(media.contentType);
+          const options = ipfs.buildMessageOptions(uploadResult, fileType, {
+            fileMimeType: media.contentType,
+          });
+          const msgData = ipfsToNkn(options, { topic: topicName, groupId });
+          const payload = JSON.stringify(msgData);
+          mediaMessageId = msgData.id;
+
+          if (topicName) {
+            const topicHash = genTopicHash(topicName);
+            const subscribers = await bus.getSubscribers(topicHash);
+            const selfAddr = bus.getAddress();
+            const dests = subscribers.filter((addr) => addr !== selfAddr);
+            if (dests.length > 0) {
+              bus.sendToMultiple(dests, payload);
+            }
+          } else if (groupId) {
+            const dest = to.replace(/^group:/i, "");
+            bus.sendNoReply(dest, payload);
+          } else {
+            const dest = to.replace(/^dchat:/i, "");
+            await bus.send(dest, payload);
+          }
+        } catch (err) {
+          logger.warn(`sendMedia failed for ${mediaUrl}: ${err}`);
+          // Fallback: send the URL as plain text so the recipient still gets a link
+          const fallbackMsg = textToNkn(mediaUrl, { topic: topicName, groupId });
+          const fallbackPayload = JSON.stringify(fallbackMsg);
+          mediaMessageId = fallbackMsg.id;
+
+          if (topicName) {
+            const topicHash = genTopicHash(topicName);
+            const subscribers = await bus.getSubscribers(topicHash);
+            const selfAddr = bus.getAddress();
+            const dests = subscribers.filter((addr) => addr !== selfAddr);
+            if (dests.length > 0) {
+              bus.sendToMultiple(dests, fallbackPayload);
+            }
+          } else if (groupId) {
+            const dest = to.replace(/^group:/i, "");
+            bus.sendNoReply(dest, fallbackPayload);
+          } else {
+            const dest = to.replace(/^dchat:/i, "");
+            await bus.send(dest, fallbackPayload);
+          }
+        }
+      }
+
+      // Send accompanying text as a separate message if present
+      if (text) {
+        const msgData = textToNkn(text, { topic: topicName, groupId });
+        const payload = JSON.stringify(msgData);
+
+        if (topicName) {
+          const topicHash = genTopicHash(topicName);
+          const subscribers = await bus.getSubscribers(topicHash);
+          const selfAddr = bus.getAddress();
+          const dests = subscribers.filter((addr) => addr !== selfAddr);
+          if (dests.length > 0) {
+            bus.sendToMultiple(dests, payload);
+          }
+        } else if (groupId) {
+          const dest = to.replace(/^group:/i, "");
+          bus.sendNoReply(dest, payload);
+        } else {
+          const dest = to.replace(/^dchat:/i, "");
+          await bus.send(dest, payload);
+        }
+
+        return { channel: "dchat", messageId: msgData.id };
+      }
+
+      return { channel: "dchat", messageId: mediaMessageId ?? "" };
     },
   },
   setup: {
@@ -490,6 +593,47 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
                 sessionKey: route.sessionKey,
               });
 
+              // Download full-resolution IPFS media if present (non-fatal on failure)
+              let mediaFields: Record<string, unknown> = {};
+              let inboundBodyText = inbound.body;
+              if (inbound.ipfsHash && inbound.ipfsOptions) {
+                try {
+                  const ipfs = new IpfsService(account.ipfsGateway);
+                  const data = await ipfs.download(inbound.ipfsHash, {
+                    encrypt: inbound.ipfsOptions.ipfsEncrypt,
+                    encryptKeyBytes: inbound.ipfsOptions.ipfsEncryptKeyBytes,
+                    encryptNonceSize: inbound.ipfsOptions.ipfsEncryptNonceSize,
+                  });
+                  const mime =
+                    inbound.ipfsOptions.fileMimeType ??
+                    (await core.media.detectMime?.({ buffer: data })) ??
+                    "application/octet-stream";
+                  const saved = await core.channel.media.saveMediaBuffer(
+                    data,
+                    mime,
+                    "inbound",
+                  );
+                  mediaFields = {
+                    MediaPath: saved.path,
+                    MediaUrl: `file://${saved.path}`,
+                    MediaType: mime,
+                  };
+                  // Replace placeholder with media tag so the agent sees the
+                  // full-resolution image from IPFS, not a text placeholder.
+                  const kind = mime.startsWith("audio/")
+                    ? "audio"
+                    : mime.startsWith("video/")
+                      ? "video"
+                      : mime.startsWith("image/")
+                        ? "image"
+                        : "file";
+                  inboundBodyText = `<media:${kind}>`;
+                } catch (err) {
+                  logger.warn(`IPFS download failed: ${err}`);
+                  // Non-fatal: message still delivered with placeholder text
+                }
+              }
+
               const body = core.channel.reply.formatAgentEnvelope({
                 channel: "D-Chat",
                 from:
@@ -499,14 +643,15 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
                 timestamp: msg.timestamp,
                 previousTimestamp,
                 envelope: envelopeOptions,
-                body: inbound.body,
+                body: inboundBodyText,
               });
 
               const ctxPayload = core.channel.reply.finalizeInboundContext({
                 Body: body,
-                BodyForAgent: inbound.body,
-                RawBody: inbound.body,
-                CommandBody: inbound.body,
+                BodyForAgent: inboundBodyText,
+                RawBody: inboundBodyText,
+                CommandBody: inboundBodyText,
+                ...mediaFields,
                 From:
                   inbound.chatType === "direct"
                     ? `dchat:${src}`
@@ -567,28 +712,57 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
               const { dispatcher, replyOptions, markDispatchIdle } =
                 core.channel.reply.createReplyDispatcherWithTyping({
                   deliver: async (payload) => {
-                    // Deliver reply back to NKN
                     const replyText = payload.text ?? "";
-                    if (!replyText) return;
-
                     const topic = extractTopicFromSessionKey(inbound.sessionKey);
                     const groupIdFromKey = extractGroupIdFromSessionKey(inbound.sessionKey);
-                    const replyMsg = textToNkn(replyText, { topic, groupId: groupIdFromKey });
-                    const replyPayload = JSON.stringify(replyMsg);
 
-                    if (topic) {
-                      const topicHash = genTopicHash(topic);
-                      const subscribers = await bus.getSubscribers(topicHash);
-                      const dests = subscribers.filter((a) => a !== selfAddress);
-                      if (dests.length > 0) {
-                        bus.sendToMultiple(dests, replyPayload);
+                    // Helper to route a payload string via NKN
+                    const routeNkn = async (nknPayload: string) => {
+                      if (topic) {
+                        const topicHash = genTopicHash(topic);
+                        const subscribers = await bus.getSubscribers(topicHash);
+                        const dests = subscribers.filter((a) => a !== selfAddress);
+                        if (dests.length > 0) {
+                          bus.sendToMultiple(dests, nknPayload);
+                        }
+                      } else if (groupIdFromKey) {
+                        bus.sendNoReply(groupIdFromKey, nknPayload);
+                      } else {
+                        bus.sendNoReply(src, nknPayload);
                       }
-                    } else if (groupIdFromKey) {
-                      // Private group: route reply to the group address
-                      bus.sendNoReply(groupIdFromKey, replyPayload);
-                    } else {
-                      bus.sendNoReply(src, replyPayload);
+                    };
+
+                    // Handle media URLs (images, audio, files)
+                    const mediaUrls = resolveOutboundMediaUrls(payload);
+                    if (mediaUrls.length > 0) {
+                      const ipfs = new IpfsService(account.ipfsGateway);
+                      for (const mediaUrl of mediaUrls) {
+                        try {
+                          const media = await core.media.loadWebMedia(mediaUrl);
+                          const uploadResult = await ipfs.upload(Buffer.from(media.buffer));
+                          const fileType = mimeToIpfsFileType(media.contentType);
+                          const options = ipfs.buildMessageOptions(uploadResult, fileType, {
+                            fileMimeType: media.contentType,
+                          });
+                          const msgData = ipfsToNkn(options, { topic, groupId: groupIdFromKey });
+                          await routeNkn(JSON.stringify(msgData));
+                        } catch (err) {
+                          logger.warn(`media send failed for ${mediaUrl}: ${err}`);
+                          // Fallback: send the URL as plain text
+                          try {
+                            const fallback = textToNkn(mediaUrl, { topic, groupId: groupIdFromKey });
+                            await routeNkn(JSON.stringify(fallback));
+                          } catch {
+                            // fallback send failure is non-fatal
+                          }
+                        }
+                      }
                     }
+
+                    // Handle text (existing logic)
+                    if (!replyText) return;
+                    const replyMsg = textToNkn(replyText, { topic, groupId: groupIdFromKey });
+                    await routeNkn(JSON.stringify(replyMsg));
                   },
                   humanDelay: core.channel.reply.resolveHumanDelayConfig(cfg, ""),
                 });
