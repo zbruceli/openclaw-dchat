@@ -62,6 +62,7 @@ import {
   genTopicHash,
   ipfsToNkn,
   nknToInbound,
+  parseInlineMediaDataUri,
   parseNknPayload,
   receiptToNkn,
   stripNknSubClientPrefix,
@@ -631,6 +632,30 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
                 } catch (err) {
                   logger.warn(`IPFS download failed: ${err}`);
                   // Non-fatal: message still delivered with placeholder text
+                }
+              }
+
+              // Handle inline audio (D-Chat/nMobile send voice as base64 data-URI)
+              if (!mediaFields.MediaPath && inbound.inlineMediaDataUri) {
+                try {
+                  const parsed = parseInlineMediaDataUri(inbound.inlineMediaDataUri);
+                  if (parsed) {
+                    // Normalize nMobile MIME variants to standard audio/aac
+                    const mime = parsed.mime === "audio/x-aac" ? "audio/aac" : parsed.mime;
+                    const saved = await core.channel.media.saveMediaBuffer(
+                      parsed.buffer,
+                      mime,
+                      "inbound",
+                    );
+                    mediaFields = {
+                      MediaPath: saved.path,
+                      MediaUrl: `file://${saved.path}`,
+                      MediaType: mime,
+                    };
+                    inboundBodyText = "<media:audio>";
+                  }
+                } catch (err) {
+                  logger.warn(`Inline audio decode failed: ${err}`);
                 }
               }
 

@@ -59,6 +59,8 @@ export interface InboundMessageResult {
   groupSubject?: string;
   ipfsHash?: string;
   ipfsOptions?: MessageOptions;
+  /** Raw inline media data-URI (e.g. "![audio](data:audio/aac;base64,...)") for voice messages. */
+  inlineMediaDataUri?: string;
 }
 
 /**
@@ -141,9 +143,34 @@ export function nknToInbound(
     senderId: src,
     senderName,
     groupSubject,
-    ipfsHash: msg.options?.ipfsHash || (ct === "ipfs" ? msg.content : undefined),
+    ipfsHash:
+      msg.options?.ipfsHash || (ct === "ipfs" || ct === "audio" ? msg.content : undefined),
     ipfsOptions: ct === "ipfs" || ct === "audio" ? msg.options : undefined,
+    // D-Chat/nMobile send voice messages inline as base64 data-URI in content
+    inlineMediaDataUri:
+      ct === "audio" && msg.content?.includes("data:") ? msg.content : undefined,
   };
+}
+
+/**
+ * Parse an inline media data-URI from nMobile/D-Chat format.
+ * Handles: "![audio](data:audio/aac;base64,...)" and raw "data:audio/aac;base64,..."
+ * Returns { mime, buffer } or null if not a valid data-URI.
+ */
+export function parseInlineMediaDataUri(
+  raw: string,
+): { mime: string; buffer: Buffer } | null {
+  // Extract data-URI from markdown image syntax: ![...](data:...)
+  const mdMatch = raw.match(/!\[.*?\]\((data:[^)]+)\)/);
+  const dataUri = mdMatch ? mdMatch[1] : raw.startsWith("data:") ? raw : null;
+  if (!dataUri) return null;
+
+  const match = dataUri.match(/^data:([^;]+);base64,(.+)$/s);
+  if (!match) return null;
+
+  const mime = match[1];
+  const buffer = Buffer.from(match[2], "base64");
+  return { mime, buffer };
 }
 
 /**

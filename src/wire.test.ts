@@ -8,6 +8,7 @@ import {
   isControlMessage,
   isDisplayableMessage,
   nknToInbound,
+  parseInlineMediaDataUri,
   parseNknPayload,
   receiptToNkn,
   stripNknSubClientPrefix,
@@ -172,6 +173,65 @@ describe("nknToInbound", () => {
     expect(result!.body).toBe("[Voice Message]");
   });
 
+  it("extracts IPFS hash from audio message with options.ipfsHash", () => {
+    const msg: MessageData = {
+      id: "msg-audio-ipfs-1",
+      contentType: "audio",
+      content: "QmAudioHash...",
+      options: {
+        ipfsHash: "QmAudioHash...",
+        ipfsEncrypt: 1,
+        ipfsEncryptAlgorithm: "AES/GCM/NoPadding",
+        ipfsEncryptKeyBytes: Array.from(Buffer.alloc(16, 0xab)),
+        ipfsEncryptNonceSize: 12,
+        fileType: 2,
+        mediaDuration: 5.3,
+      },
+      timestamp: Date.now(),
+    };
+    const result = nknToInbound("sender", msg, selfAddr);
+    expect(result!.body).toBe("[Voice Message]");
+    expect(result!.ipfsHash).toBe("QmAudioHash...");
+    expect(result!.ipfsOptions).toBeDefined();
+    expect(result!.ipfsOptions!.ipfsEncrypt).toBe(1);
+    expect(result!.ipfsOptions!.mediaDuration).toBe(5.3);
+  });
+
+  it("extracts IPFS hash from audio message content when options.ipfsHash is missing", () => {
+    const msg: MessageData = {
+      id: "msg-audio-ipfs-2",
+      contentType: "audio",
+      content: "QmAudioContentHash",
+      options: {
+        ipfsEncrypt: 1,
+        ipfsEncryptKeyBytes: Array.from(Buffer.alloc(16, 0xcd)),
+        ipfsEncryptNonceSize: 12,
+      },
+      timestamp: Date.now(),
+    };
+    const result = nknToInbound("sender", msg, selfAddr);
+    expect(result!.ipfsHash).toBe("QmAudioContentHash");
+    expect(result!.ipfsOptions).toBeDefined();
+  });
+
+  it("translates IPFS audio message (contentType ipfs, fileType 2)", () => {
+    const msg: MessageData = {
+      id: "msg-ipfs-audio",
+      contentType: "ipfs",
+      content: "QmIpfsAudio...",
+      options: {
+        ipfsHash: "QmIpfsAudio...",
+        fileType: 2,
+        mediaDuration: 12.5,
+      },
+      timestamp: Date.now(),
+    };
+    const result = nknToInbound("sender", msg, selfAddr);
+    expect(result!.body).toBe("[Audio]");
+    expect(result!.ipfsHash).toBe("QmIpfsAudio...");
+    expect(result!.ipfsOptions!.mediaDuration).toBe(12.5);
+  });
+
   it("returns null for control messages", () => {
     const receipt: MessageData = {
       id: "msg-6",
@@ -262,5 +322,76 @@ describe("stripNknSubClientPrefix", () => {
 
   it("leaves plain addresses unchanged", () => {
     expect(stripNknSubClientPrefix("cd3530abcdef")).toBe("cd3530abcdef");
+  });
+});
+
+describe("parseInlineMediaDataUri", () => {
+  it("parses D-Chat markdown audio data-URI (audio/x-aac)", () => {
+    const raw = "![audio](data:audio/x-aac;base64,AAAA)";
+    const result = parseInlineMediaDataUri(raw);
+    expect(result).not.toBeNull();
+    expect(result!.mime).toBe("audio/x-aac");
+    expect(result!.buffer).toEqual(Buffer.from("AAAA", "base64"));
+  });
+
+  it("parses nMobile markdown audio data-URI (audio/aac)", () => {
+    const b64 = Buffer.from("hello audio").toString("base64");
+    const raw = `![audio](data:audio/aac;base64,${b64})`;
+    const result = parseInlineMediaDataUri(raw);
+    expect(result).not.toBeNull();
+    expect(result!.mime).toBe("audio/aac");
+    expect(result!.buffer.toString()).toBe("hello audio");
+  });
+
+  it("parses raw data-URI without markdown wrapper", () => {
+    const b64 = Buffer.from("raw data").toString("base64");
+    const raw = `data:audio/ogg;base64,${b64}`;
+    const result = parseInlineMediaDataUri(raw);
+    expect(result).not.toBeNull();
+    expect(result!.mime).toBe("audio/ogg");
+    expect(result!.buffer.toString()).toBe("raw data");
+  });
+
+  it("returns null for non-data-URI content", () => {
+    expect(parseInlineMediaDataUri("QmSomeIpfsHash")).toBeNull();
+    expect(parseInlineMediaDataUri("just plain text")).toBeNull();
+    expect(parseInlineMediaDataUri("")).toBeNull();
+  });
+
+  it("returns null for invalid base64", () => {
+    expect(parseInlineMediaDataUri("data:audio/aac;utf8,notbase64")).toBeNull();
+  });
+});
+
+describe("nknToInbound — inline audio", () => {
+  const selfAddr = "self-address-abc123";
+
+  it("sets inlineMediaDataUri for audio with data-URI content", () => {
+    const b64 = Buffer.from("aac-audio-data").toString("base64");
+    const msg: MessageData = {
+      id: "msg-voice-1",
+      contentType: "audio",
+      content: `![audio](data:audio/x-aac;base64,${b64})`,
+      options: { fileType: 2, fileExt: "aac", mediaDuration: 3.5 },
+      timestamp: Date.now(),
+    };
+    const result = nknToInbound("sender", msg, selfAddr);
+    expect(result!.body).toBe("[Voice Message]");
+    expect(result!.inlineMediaDataUri).toBe(msg.content);
+    // ipfsHash should also be set as fallback (content contains "data:" but also matches)
+    // but IPFS download will fail gracefully — inline path takes priority in channel.ts
+  });
+
+  it("does not set inlineMediaDataUri for audio without data-URI", () => {
+    const msg: MessageData = {
+      id: "msg-voice-2",
+      contentType: "audio",
+      content: "QmSomeHash",
+      options: { ipfsHash: "QmSomeHash" },
+      timestamp: Date.now(),
+    };
+    const result = nknToInbound("sender", msg, selfAddr);
+    expect(result!.inlineMediaDataUri).toBeUndefined();
+    expect(result!.ipfsHash).toBe("QmSomeHash");
   });
 });
