@@ -21,6 +21,71 @@ export function mimeToIpfsFileType(mime?: string): number {
   return IPFS_FILE_TYPE.FILE;
 }
 
+/** Common MIME → extension mappings for file transfers. */
+const MIME_TO_EXT: Record<string, string> = {
+  "application/pdf": "pdf",
+  "application/zip": "zip",
+  "application/x-zip-compressed": "zip",
+  "application/msword": "doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.ms-excel": "xls",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "application/vnd.ms-powerpoint": "ppt",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+  "text/plain": "txt",
+  "text/csv": "csv",
+  "text/html": "html",
+  "application/json": "json",
+  "application/xml": "xml",
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "audio/aac": "aac",
+  "audio/mpeg": "mp3",
+  "audio/ogg": "ogg",
+  "audio/wav": "wav",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+};
+
+/**
+ * Build file metadata (fileName, fileExt, fileSize) for outbound media.
+ * Derives extension from the original filename or MIME type.
+ */
+export function buildFileMetadata(media: {
+  buffer: Buffer;
+  contentType?: string;
+  fileName?: string;
+}): { fileName: string; fileExt: string; fileSize: number } {
+  let ext: string | undefined;
+  let name = media.fileName;
+
+  // Try to get extension from filename
+  if (name) {
+    const dotIdx = name.lastIndexOf(".");
+    if (dotIdx > 0) {
+      ext = name.substring(dotIdx + 1).toLowerCase();
+    }
+  }
+
+  // Fall back to MIME type
+  if (!ext && media.contentType) {
+    ext = MIME_TO_EXT[media.contentType.toLowerCase()];
+  }
+
+  ext = ext || "bin";
+
+  // Ensure filename has extension
+  if (!name) {
+    name = `file.${ext}`;
+  } else if (!name.includes(".")) {
+    name = `${name}.${ext}`;
+  }
+
+  return { fileName: name, fileExt: ext, fileSize: media.buffer.length };
+}
+
 export interface IpfsUploadResult {
   hash: string;
   key: Buffer;

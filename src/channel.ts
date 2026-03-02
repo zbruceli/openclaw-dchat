@@ -68,7 +68,7 @@ import {
   stripNknSubClientPrefix,
   textToNkn,
 } from "./wire.js";
-import { IpfsService, mimeToIpfsFileType } from "./ipfs.js";
+import { IpfsService, mimeToIpfsFileType, buildFileMetadata } from "./ipfs.js";
 
 // Per-account NKN bus instances and dedup trackers, keyed by accountId
 const busMap = new Map<string, NknBus>();
@@ -258,8 +258,10 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
           const ipfs = new IpfsService(accountCfg.ipfsGateway);
           const uploadResult = await ipfs.upload(Buffer.from(media.buffer));
           const fileType = mimeToIpfsFileType(media.contentType);
+          const fileMeta = buildFileMetadata(media);
           const options = ipfs.buildMessageOptions(uploadResult, fileType, {
             fileMimeType: media.contentType,
+            ...fileMeta,
           });
           const msgData = ipfsToNkn(options, { topic: topicName, groupId });
           const payload = JSON.stringify(msgData);
@@ -766,8 +768,10 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
                           const media = await core.media.loadWebMedia(mediaUrl);
                           const uploadResult = await ipfs.upload(Buffer.from(media.buffer));
                           const fileType = mimeToIpfsFileType(media.contentType);
+                          const fileMeta = buildFileMetadata(media);
                           const options = ipfs.buildMessageOptions(uploadResult, fileType, {
                             fileMimeType: media.contentType,
+                            ...fileMeta,
                           });
                           const msgData = ipfsToNkn(options, { topic, groupId: groupIdFromKey });
                           await routeNkn(JSON.stringify(msgData));

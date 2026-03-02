@@ -7,27 +7,25 @@ OpenClaw channel plugin for **D-Chat / nMobile** — decentralized end-to-end en
 - Direct messages (DM) with NKN addresses
 - Topic-based group chat (NKN pub/sub)
 - Private group messaging
-- IPFS media support (send & receive images over IPFS with AES-128-GCM encryption)
-- Voice message support (inline AAC audio from D-Chat Desktop and nMobile)
+- Media support — images, voice messages, and file transfers
+  - Images and files sent/received over IPFS with AES-128-GCM encryption
+  - Voice messages via inline AAC (D-Chat Desktop & nMobile compatible)
+  - Graceful fallback to URL text when IPFS upload fails
 - Delivery receipts
-- AES-128-GCM encryption (nMobile wire format compatible)
 - Multi-account support
 - DM policy enforcement (pairing, allowlist, open, disabled)
+- Full nMobile wire format compatibility
 
 ## Installation
 
 ```bash
 openclaw plugins install @zbruceli/openclaw-dchat
-```
-
-Remember to restart gateway
-```bash
 openclaw gateway restart
 ```
 
 ## Configuration
 
-After installing, add the D-Chat channel:
+Add the D-Chat channel after installing:
 
 ```bash
 # Interactive wizard
@@ -37,22 +35,16 @@ openclaw channels add
 openclaw channels add --channel dchat --access-token <64-char-hex-seed>
 ```
 
-The onboarding wizard will prompt you for:
+You'll need:
 
-1. **NKN wallet seed** — a 64-character hex string. The easiest way is 1-click generating a NKN bot in the Settings menu of D-Chat Desktop app. Or you can generate one with `nkn-sdk` or use an existing seed from D-Chat Desktop / nMobile.
-2. **DM policy** — controls who can send you direct messages:
+1. **NKN wallet seed** — a 64-character hex string. Generate one in D-Chat Desktop (Settings > 1-click bot generation), or use `nkn-sdk`, or reuse an existing seed.
+2. **DM policy** — controls who can send direct messages:
    - `pairing` (default) — new senders must be approved via pairing code
    - `allowlist` — only explicitly allowed NKN addresses
    - `open` — accept DMs from anyone
    - `disabled` — no DMs
 
-You can also configure via environment variables:
-
-```bash
-export DCHAT_SEED="your-64-char-hex-wallet-seed"
-```
-
-Or set directly in your OpenClaw config:
+### Config file
 
 ```yaml
 channels:
@@ -66,83 +58,56 @@ channels:
 
 ## Pairing
 
-With the default `dmPolicy: pairing`, new senders receive a pairing code that must be approved before messages flow through to the agent.
+With the default `dmPolicy: pairing`, new senders receive a pairing code that must be approved:
 
 ```bash
-# List pending pairing requests
 openclaw pairing list dchat
-
-# Approve a sender
 openclaw pairing approve dchat <CODE>
 ```
 
 ## Channel Management
 
 ```bash
-# Check channel status
-openclaw channels status
-
-# Remove channel
-openclaw channels remove --channel dchat
-
-# Uninstall plugin
-openclaw plugins uninstall openclaw-dchat
+openclaw channels status          # check status
+openclaw channels remove --channel dchat  # remove channel
+openclaw plugins uninstall openclaw-dchat # uninstall plugin
 ```
 
-## Debug if you run into issues
+## Debugging
+
 ```bash
 openclaw logs | grep -i dchat
 ```
 
-
 ## Development
 
 ```bash
-# Install dependencies
-npm install
-
-# Run tests
-npm test
-
-# Watch mode
-npm run test:watch
+npm install    # install dependencies
+npm test       # run tests
+npm run test:watch  # watch mode
 ```
 
-### Local Development (link workflow)
+### Local Development
 
-During plugin development, use the `--link` flag to avoid the npm publish → reinstall cycle:
+Use the link workflow to avoid the publish/reinstall cycle:
 
 ```bash
-# Link plugin from your local source directory
 openclaw plugins install -l /path/to/openclaw-dchat
-
-# After code changes, just restart the gateway — no reinstall needed
-openclaw gateway restart
+openclaw gateway restart  # after code changes, just restart
 ```
 
-This adds your local path to `plugins.load.paths` in `openclaw.json` and loads directly from source. No need to republish or reinstall between iterations.
-
-### Clean Uninstall / Reinstall
-
-When you need a full cleanup:
+### Clean Reinstall
 
 ```bash
-# Uninstall plugin (removes config entries + installed files)
 openclaw plugins uninstall openclaw-dchat
-
-# Remove channel config
 openclaw channels remove --channel dchat
-
-# Reinstall from npm (production)
 openclaw plugins install @zbruceli/openclaw-dchat
-
-# Restart gateway
 openclaw gateway restart
 ```
 
-## How it works
+## How It Works
 
-The plugin connects to the NKN relay network as a MultiClient node, enabling peer-to-peer messaging without centralized servers. Messages use the same wire format as D-Chat Desktop and nMobile, so you can chat between OpenClaw and any D-Chat/nMobile client.
+The plugin connects to the NKN relay network as a MultiClient node, enabling peer-to-peer messaging without centralized servers. Messages use the same wire format as D-Chat Desktop and nMobile for full interop. Media (images, files) is encrypted with AES-128-GCM and transferred via IPFS; voice messages use inline AAC encoding.
 
 ## License
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import http from "http";
 import { EventEmitter } from "events";
-import { IpfsService, IPFS_FILE_TYPE, mimeToIpfsFileType } from "./ipfs.js";
+import { IpfsService, IPFS_FILE_TYPE, mimeToIpfsFileType, buildFileMetadata } from "./ipfs.js";
 import { decryptAesGcm, encryptAesGcm, keyToByteArray, byteArrayToKey } from "./crypto.js";
 
 describe("mimeToIpfsFileType", () => {
@@ -236,5 +236,66 @@ describe("IpfsService HTTP error handling", () => {
     await expect(
       service.download("QmMissing", { encrypt: 1, encryptKeyBytes: Array.from(Buffer.alloc(16)), encryptNonceSize: 12 }),
     ).rejects.toThrow("IPFS HTTP 404");
+  });
+});
+
+describe("buildFileMetadata", () => {
+  it("extracts extension from fileName", () => {
+    const result = buildFileMetadata({
+      buffer: Buffer.from("pdf content"),
+      contentType: "application/pdf",
+      fileName: "report.pdf",
+    });
+    expect(result.fileName).toBe("report.pdf");
+    expect(result.fileExt).toBe("pdf");
+    expect(result.fileSize).toBe(11);
+  });
+
+  it("derives extension from MIME when fileName has no extension", () => {
+    const result = buildFileMetadata({
+      buffer: Buffer.from("data"),
+      contentType: "application/pdf",
+      fileName: "report",
+    });
+    expect(result.fileName).toBe("report.pdf");
+    expect(result.fileExt).toBe("pdf");
+  });
+
+  it("derives extension from MIME when no fileName", () => {
+    const result = buildFileMetadata({
+      buffer: Buffer.from("data"),
+      contentType: "image/png",
+    });
+    expect(result.fileName).toBe("file.png");
+    expect(result.fileExt).toBe("png");
+  });
+
+  it("falls back to bin for unknown MIME and no fileName", () => {
+    const result = buildFileMetadata({
+      buffer: Buffer.from("data"),
+      contentType: "application/x-unknown",
+    });
+    expect(result.fileName).toBe("file.bin");
+    expect(result.fileExt).toBe("bin");
+  });
+
+  it("handles docx MIME type", () => {
+    const result = buildFileMetadata({
+      buffer: Buffer.from("docx"),
+      contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      fileName: "letter.docx",
+    });
+    expect(result.fileExt).toBe("docx");
+    expect(result.fileName).toBe("letter.docx");
+  });
+
+  it("prefers fileName extension over MIME", () => {
+    const result = buildFileMetadata({
+      buffer: Buffer.from("data"),
+      contentType: "application/octet-stream",
+      fileName: "archive.tar.gz",
+    });
+    expect(result.fileExt).toBe("gz");
+    expect(result.fileName).toBe("archive.tar.gz");
   });
 });
