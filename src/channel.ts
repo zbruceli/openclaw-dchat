@@ -438,6 +438,38 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
       const seenTracker = new SeenTracker();
       seenMap.set(account.accountId, seenTracker);
 
+      // Listen for heartbeat events
+      bus.on("heartbeat", ({ success, failures }: { success: boolean; failures: number }) => {
+        if (!success) {
+          logger.warn(`[${account.accountId}] heartbeat echo failed (${failures} consecutive)`);
+        }
+      });
+      bus.on("heartbeatReconnect", ({ failures }: { failures: number }) => {
+        logger.warn(
+          `[${account.accountId}] heartbeat failed ${failures} times, reconnecting...`,
+        );
+        ctx.setStatus({ accountId: account.accountId, connected: false });
+      });
+      bus.on("stateChange", (state: string) => {
+        if (state === "connected") {
+          ctx.setStatus({
+            accountId: account.accountId,
+            connected: true,
+            lastConnectedAt: Date.now(),
+          });
+          logger.info(`[${account.accountId}] reconnected as ${bus.getAddress()}`);
+        }
+      });
+      bus.on("reconnectFailed", (err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error(`[${account.accountId}] reconnect failed: ${msg}`);
+        ctx.setStatus({
+          accountId: account.accountId,
+          connected: false,
+          lastError: `reconnect failed: ${msg}`,
+        });
+      });
+
       try {
         const address = await bus.connect(
           { seed: account.seed, numSubClients: account.numSubClients },
