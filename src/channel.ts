@@ -450,8 +450,9 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
         );
         ctx.setStatus({ accountId: account.accountId, connected: false });
       });
+      let initialConnectDone = false;
       bus.on("stateChange", (state: string) => {
-        if (state === "connected") {
+        if (state === "connected" && initialConnectDone) {
           ctx.setStatus({
             accountId: account.accountId,
             connected: true,
@@ -485,6 +486,7 @@ export const dchatPlugin: ChannelPlugin<ResolvedDchatAccount> = {
           lastConnectedAt: Date.now(),
         });
         logger.info(`[${account.accountId}] connected as ${address}`);
+        initialConnectDone = true;
 
         // Register inbound message handler
         bus.onMessage((rawSrc, rawPayload) => {
